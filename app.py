@@ -1,76 +1,73 @@
 import streamlit as st
 import pandas as pd
-import yfinance as yf
 from SmartApi import SmartConnect
+import pyotp # TOTP ke liye extra library
 import datetime
 
 # Page Setup
-st.set_page_config(page_title="My Trading Dashboard", layout="wide")
+st.set_page_config(page_title="Angle One Trading Dashboard", layout="wide")
 
-st.title("📈 Stock Support & Resistance")
+st.title("🚀 Angle One Live Trading Dashboard")
 
-# --- SIDEBAR: Settings & Login ---
-st.sidebar.header("Settings")
+# --- SIDEBAR: API Settings ---
+st.sidebar.header("Broker Login")
+api_key = st.sidebar.text_input("API Key", type="password")
+client_id = st.sidebar.text_input("Client ID (Username)")
+password = st.sidebar.text_input("Password", type="password")
+totp_key = st.sidebar.text_input("TOTP Key (Authenticator Token)", type="password")
+
+# Session state to keep login active
+if 'smartApi' not in st.session_state:
+    st.session_state.smartApi = None
+
+if st.sidebar.button("Login to Angle One"):
+    try:
+        smartApi = SmartConnect(api_key=api_key)
+        # Generating TOTP
+        otp = pyotp.TOTP(totp_key).now()
+        data = smartApi.generateSession(client_id, password, otp)
+        
+        if data['status']:
+            st.session_state.smartApi = smartApi
+            st.sidebar.success("Login Successful!")
+        else:
+            st.sidebar.error(f"Login Failed: {data['message']}")
+    except Exception as e:
+        st.sidebar.error(f"Error: {e}")
+
+# --- MARKET SELECTION ---
 market = st.sidebar.selectbox("Market Select Karein", ["NIFTY", "BANKNIFTY"])
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("Angle One Login")
-api_key = st.sidebar.text_input("API Key", type="password")
-client_id = st.sidebar.text_input("Client ID")
-pwd = st.sidebar.text_input("Password", type="password")
-
-if st.sidebar.button("Connect to Broker"):
-    st.sidebar.info("API connection logic yahan chalegi.")
-
-# --- DATA FETCHING LOGIC ---
-# Stable symbols for Yahoo Finance
-# Updated Stable Symbols
-if market == "NIFTY":
-    symbol = "^NSEI"
-else:
-    symbol = "^NSEBANK"
-
-# Optional: Agar upar wala kaam na kare toh niche wala try karein
-# symbol = "NIFTY50.NS" if market == "NIFTY" else "BANKNIFTY.NS"
-
-try:
-    # Pichle 5 din ka data le rahe hain taaki Pivot levels nikal sakein
-    df = yf.download(symbol, period="5d", interval="15m")
-
-    if not df.empty:
-        # Latest data points
-        current_price = df['Close'].iloc[-1]
-        last_day_high = df['High'].iloc[-2]
-        last_day_low = df['Low'].iloc[-2]
-        last_day_close = df['Close'].iloc[-1]
-
-        # Standard Pivot Point Calculation
-        pivot = (last_day_high + last_day_low + last_day_close) / 3
-        r1 = (2 * pivot) - last_day_low
-        s1 = (2 * pivot) - last_day_high
-
-        # --- DISPLAY ---
-        col1, col2, col3 = st.columns(3)
-        col1.metric(f"Live {market} Price", f"{current_price:.2f}")
-        col2.metric("Resistance (R1)", f"{r1:.2f}")
-        col3.metric("Support (S1)", f"{s1:.2f}")
-
-        st.markdown("---")
-
-        # Trading Signals
-        if current_price <= s1:
-            st.success(f"🔥 BUY SIGNAL: {market} Support ke paas hai!")
-        elif current_price >= r1:
-            st.error(f"⚠️ SELL SIGNAL: {market} Resistance ke paas hai!")
+# --- DATA FETCHING & DISPLAY ---
+if st.session_state.smartApi:
+    st.info(f"Fetching live data for {market} via SmartAPI...")
+    
+    # Token selection (Nifty/BankNifty tokens for Angle One)
+    # Nifty: 99926000, BankNifty: 99926009 (NSE Indices)
+    symbol_token = "99926000" if market == "NIFTY" else "99926009"
+    
+    try:
+        # OHLC Data fetch karne ka logic
+        # Note: Market band hone par ye 'None' dikha sakta hai
+        ohlc_data = st.session_state.smartApi.ltpData("NSE", market, symbol_token)
+        
+        if ohlc_data['status']:
+            ltp = ohlc_data['data']['ltp']
+            
+            # Display Metrics
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Live LTP", f"₹{ltp}")
+            
+            # Dummy R1/S1 for calculation (Actual API se bhi nikal sakte hain)
+            pivot = ltp # Simple logic for display
+            st.success(f"{market} connection active. Current LTP is {ltp}")
         else:
-            st.info("Market abhi Range mein hai (No Signal).")
+            st.warning("API connected but data not available (Market closed?)")
+            
+    except Exception as e:
+        st.error(f"Data Fetch Error: {e}")
+else:
+    st.warning("Pehle Sidebar se Login karein taaki live data mil sake.")
 
-        # Basic Chart
-        st.subheader(f"{market} Price Movement (15 min)")
-        st.line_chart(df['Close'])
-
-    else:
-        st.warning("Market data abhi available nahi hai. Thodi der baad koshish karein.")
-
-except Exception as e:
-    st.error(f"Kuch galti hui hai: {e}")
+st.markdown("---")
+st.caption("Designed for HR & Admin Pros - Easy Trading Access")
