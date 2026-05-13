@@ -2,35 +2,68 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from SmartApi import SmartConnect
+import datetime
 
-st.set_page_config(page_title="My Trade App", layout="wide")
+# Page Setup
+st.set_page_config(page_title="My Trading Dashboard", layout="wide")
 
-# --- Angle One Setup ---
-st.sidebar.title("Login Details")
-api_key = st.sidebar.text_input("API Key")
+st.title("📈 Stock Support & Resistance")
+
+# --- SIDEBAR: Settings & Login ---
+st.sidebar.header("Settings")
+market = st.sidebar.selectbox("Market Select Karein", ["NIFTY", "BANKNIFTY"])
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("Angle One Login")
+api_key = st.sidebar.text_input("API Key", type="password")
 client_id = st.sidebar.text_input("Client ID")
 pwd = st.sidebar.text_input("Password", type="password")
 
-if st.sidebar.button("Login"):
-    st.sidebar.success("Koshish jari hai... (API Setup required)")
+if st.sidebar.button("Connect to Broker"):
+    st.sidebar.info("API connection logic yahan chalegi.")
 
-# --- Dashboard Logic ---
-st.title("📈 Support & Resistance Dashboard")
-market = st.selectbox("Market Choose Karein", ["NIFTY", "BANKNIFTY"])
+# --- DATA FETCHING LOGIC ---
+# Stable symbols for Yahoo Finance
 symbol = "^NSEI" if market == "NIFTY" else "^NSEBANK"
 
-# Data fetching
-data = yf.download(symbol, period="2d", interval="15m")
-if not data.empty:
-    pivot = (data['High'].iloc[-2] + data['Low'].iloc[-2] + data['Close'].iloc[-2]) / 3
-    s1 = (2 * pivot) - data['High'].iloc[-2]
-    r1 = (2 * pivot) - data['Low'].iloc[-2]
-    current = data['Close'].iloc[-1]
+try:
+    # Pichle 5 din ka data le rahe hain taaki Pivot levels nikal sakein
+    df = yf.download(symbol, period="5d", interval="15m")
 
-    st.metric("Live Price", f"{current:.2f}")
-    st.write(f"**Support (S1):** {s1:.2f} | **Resistance (R1):** {r1:.2f}")
+    if not df.empty:
+        # Latest data points
+        current_price = df['Close'].iloc[-1]
+        last_day_high = df['High'].iloc[-2]
+        last_day_low = df['Low'].iloc[-2]
+        last_day_close = df['Close'].iloc[-1]
 
-    if current <= s1:
-        st.success("BUY SIGNAL: Price Support par hai!")
-    elif current >= r1:
-        st.error("SELL SIGNAL: Price Resistance par hai!")
+        # Standard Pivot Point Calculation
+        pivot = (last_day_high + last_day_low + last_day_close) / 3
+        r1 = (2 * pivot) - last_day_low
+        s1 = (2 * pivot) - last_day_high
+
+        # --- DISPLAY ---
+        col1, col2, col3 = st.columns(3)
+        col1.metric(f"Live {market} Price", f"{current_price:.2f}")
+        col2.metric("Resistance (R1)", f"{r1:.2f}")
+        col3.metric("Support (S1)", f"{s1:.2f}")
+
+        st.markdown("---")
+
+        # Trading Signals
+        if current_price <= s1:
+            st.success(f"🔥 BUY SIGNAL: {market} Support ke paas hai!")
+        elif current_price >= r1:
+            st.error(f"⚠️ SELL SIGNAL: {market} Resistance ke paas hai!")
+        else:
+            st.info("Market abhi Range mein hai (No Signal).")
+
+        # Basic Chart
+        st.subheader(f"{market} Price Movement (15 min)")
+        st.line_chart(df['Close'])
+
+    else:
+        st.warning("Market data abhi available nahi hai. Thodi der baad koshish karein.")
+
+except Exception as e:
+    st.error(f"Kuch galti hui hai: {e}")
