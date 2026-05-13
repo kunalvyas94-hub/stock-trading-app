@@ -24,7 +24,14 @@ if st.sidebar.button("Connect to Broker"):
 
 # --- DATA FETCHING LOGIC ---
 # Stable symbols for Yahoo Finance
-symbol = "^NSEI" if market == "NIFTY" else "^NSEBANK"
+# Updated Stable Symbols
+if market == "NIFTY":
+    symbol = "^NSEI"
+else:
+    symbol = "^NSEBANK"
+
+# Optional: Agar upar wala kaam na kare toh niche wala try karein
+# symbol = "NIFTY50.NS" if market == "NIFTY" else "BANKNIFTY.NS"
 
 try:
     # Pichle 5 din ka data le rahe hain taaki Pivot levels nikal sakein
