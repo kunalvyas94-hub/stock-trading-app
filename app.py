@@ -2,13 +2,31 @@ import streamlit as st
 import pandas as pd
 from SmartApi import SmartConnect
 import pyotp
-import datetime
+import requests
 
 # Page Setup
 st.set_page_config(page_title="Professional AI Trader", layout="wide")
-st.title("🛡️ Professional AI Trading Terminal")
+st.title("🛡️ Universal AI Trading Terminal")
 
-# --- SIDEBAR: API Settings ---
+# --- 1. SMART TOKEN LOADER (Universal Library) ---
+@st.cache_data # Isse baar-baar download nahi hoga, speed badhegi
+def get_universal_tokens():
+    try:
+        url = "https://margincalculator.angelbroking.com/OpenAPI_Standard/token/OpenAPIScripMaster.json"
+        response = requests.get(url).json()
+        df = pd.DataFrame(response)
+        # Humein sirf NSE stocks chahiye
+        df = df[df['exch_seg'] == 'NSE']
+        # Dictionary banate hain: Symbol -> Token
+        token_map = dict(zip(df['symbol'], df['token']))
+        return token_map
+    except:
+        st.error("Token library load nahi ho saki. Internet check karein.")
+        return {}
+
+token_library = get_universal_tokens()
+
+# --- SIDEBAR: Login ---
 st.sidebar.header("Broker Login")
 api_key = st.sidebar.text_input("API Key", type="password")
 client_id = st.sidebar.text_input("Client ID")
@@ -29,87 +47,58 @@ if st.sidebar.button("Secure Login"):
     except Exception as e:
         st.sidebar.error(f"Error: {e}")
 
-# --- SEARCH & STOCK SELECTION ---
-st.markdown("### 🔍 Live Stock Search")
-col_search, col_market = st.columns([2, 1])
+# --- SEARCH BAR ---
+st.markdown("### 🔍 Search Any NSE Stock")
+# Search me ab aap kuch bhi likh sakte hain
+search_input = st.text_input("Stock Symbol Likhein (e.g., RELIANCE-EQ, ZOMATO-EQ, SBIN-EQ)", value="SBIN-EQ")
+current_stock = search_input.upper()
 
-with col_search:
-    search_stock = st.text_input("Stock Name Type Karein (e.g., RELIANCE, ZOMATO, SBIN)", value="NIFTY")
-    
-with col_market:
-    quick_select = st.selectbox("Ya Favorites Chunein", ["NIFTY", "BANKNIFTY", "SUZLON", "FEDERALBNK"])
-    
-current_stock = search_stock.upper() if search_stock else quick_select
-
-# --- LIVE CHART SECTION ---
-st.subheader(f"📊 Technical Analysis: {current_stock}")
-chart_code = f"""
-<div class="tradingview-widget-container" style="height:450px;">
-  <div id="tv_chart"></div>
-  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-  <script type="text/javascript">
-  new TradingView.widget({{
-    "autosize": true, "symbol": "NSE:{current_stock}", "interval": "5", "theme": "light", "style": "1",
-    "studies": ["PivotPointsHighLow@tv-basicstudies", "MAExp@tv-basicstudies", "RSI@tv-basicstudies"],
-    "container_id": "tv_chart"
-  }});
-  </script>
-</div>
-"""
-st.components.v1.html(chart_code, height=460)
-
-# --- PROFESSIONAL TRADE PLANNER (ENTRY/EXIT/SL) ---
+# --- TRADE PLANNER ---
 if st.session_state.smartApi:
-    # Sabhi important stocks ke tokens
-    tokens = {
-        "NIFTY": "99926000", "BANKNIFTY": "99926009", 
-        "SUZLON": "532667", "FEDERALBNK": "10217", "ZOMATO": "50304"
-    }
-    symbol_token = tokens.get(current_stock, "99926000") 
+    # Library se token nikalna
+    symbol_token = token_library.get(current_stock)
     
-    try:
-        ohlc_data = st.session_state.smartApi.ltpData("NSE", current_stock, symbol_token)
-        if ohlc_data['status']:
-            ltp = float(ohlc_data['data']['ltp'])
+    if symbol_token:
+        try:
+            # LTP Data mangwana
+            ohlc_data = st.session_state.smartApi.ltpData("NSE", current_stock, symbol_token)
             
-            # S/R Calculations (Professional Standard)
-            r1 = round(ltp * 1.008, 2)
-            s1 = round(ltp * 0.992, 2)
-            
-            st.markdown("---")
-            st.subheader(f"⚡ Professional Trade Plan for {current_stock}")
-            
-            p1, p2, p3, p4 = st.columns(4)
-            p1.metric("Current Price", f"₹{ltp}")
-            p2.metric("Resistance (Exit)", f"₹{r1}", delta="Profit Zone")
-            p3.metric("Support (Entry)", f"₹{s1}", delta="-Loss Zone", delta_color="inverse")
-            
-            # TRADE ACTION CARD
-            st.info("💡 **AI Trade Recommendation:**")
-            t_col1, t_col2, t_col3 = st.columns(3)
-            
-            is_bullish = ltp > s1 + (r1-s1)*0.4 
-            
-            with t_col1:
-                st.write("**ENTRY ZONE**")
-                if is_bullish:
-                    st.success(f"Buy Above: ₹{round(ltp + (ltp*0.001), 2)}")
-                else:
-                    st.error(f"Sell Below: ₹{round(ltp - (ltp*0.001), 2)}")
-            
-            with t_col2:
-                st.write("**TARGETS (Exit)**")
-                st.write(f"🎯 T1: ₹{round(ltp * 1.01, 2)}")
-                st.write(f"🎯 T2: ₹{round(ltp * 1.02, 2)}")
+            if ohlc_data['status']:
+                ltp = float(ohlc_data['data']['ltp'])
                 
-            with t_col3:
-                st.write("**RISK MANAGEMENT**")
-                st.warning(f"🛡️ Stoploss (SL): ₹{round(ltp * 0.99, 2)}")
-
-    except Exception as e:
-        st.error(f"Data Fetch Error: {e}")
+                # --- AAPKI BEST STRATEGY LOGIC ---
+                r1 = round(ltp * 1.008, 2)
+                s1 = round(ltp * 0.992, 2)
+                
+                st.markdown("---")
+                st.subheader(f"⚡ Professional Trade Plan: {current_stock}")
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Live Price", f"₹{ltp}")
+                c2.metric("Target Zone (R1)", f"₹{r1}")
+                c3.metric("Entry Zone (S1)", f"₹{s1}")
+                
+                # Recommendation Box
+                st.info(f"📊 Strategy for {current_stock}")
+                t1, t2, t3 = st.columns(3)
+                
+                with t1:
+                    st.write("**ACTION**")
+                    st.success(f"Buy Above: ₹{round(ltp * 1.001, 2)}")
+                with t2:
+                    st.write("**TARGETS**")
+                    st.write(f"🎯 T1: ₹{round(ltp * 1.01, 2)}")
+                    st.write(f"🎯 T2: ₹{round(ltp * 1.02, 2)}")
+                with t3:
+                    st.write("**RISK**")
+                    st.warning(f"🛡️ SL: ₹{round(ltp * 0.99, 2)}")
+                    
+        except Exception as e:
+            st.error(f"Price fetch nahi ho paya: {e}")
+    else:
+        st.warning(f"⚠️ Stock '{current_stock}' nahi mila. NSE format use karein (e.g., SBIN-EQ).")
 else:
-    st.warning("Sidebar se Login karein.")
+    st.warning("Pehle Sidebar se Login karein.")
 
 st.markdown("---")
-st.caption("Admin & HR Optimized Trading Terminal | v2.0 Professional")
+st.caption("Universal Library Enabled | Admin & HR Optimized Terminal")
