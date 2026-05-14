@@ -29,16 +29,14 @@ if st.sidebar.button("Secure Login"):
     except Exception as e:
         st.sidebar.error(f"Error: {e}")
 
-# --- NEW: SEARCH & STOCK SELECTION ---
-st.markdown("### 🔍 Live Stock & Index Search")
+# --- SEARCH & STOCK SELECTION ---
+st.markdown("### 🔍 Live Stock Search")
 col_search, col_market = st.columns([2, 1])
 
 with col_search:
-    # Search Bar jo aapne manga tha
-    search_stock = st.text_input("Stock Name Type Karein (e.g., ZOMATO, RELIANCE, SBIN)", value="NIFTY")
+    search_stock = st.text_input("Stock Name Type Karein (e.g., RELIANCE, ZOMATO, SBIN)", value="NIFTY")
     
 with col_market:
-    # Quick Select for your favorites
     quick_select = st.selectbox("Ya Favorites Chunein", ["NIFTY", "BANKNIFTY", "SUZLON", "FEDERALBNK"])
     
 current_stock = search_stock.upper() if search_stock else quick_select
@@ -62,19 +60,11 @@ st.components.v1.html(chart_code, height=460)
 
 # --- PROFESSIONAL TRADE PLANNER (ENTRY/EXIT/SL) ---
 if st.session_state.smartApi:
-    # UPDATED: Mapping tokens for multiple stocks
-    # Note: Successful app ke liye humne Zomato aur baki stocks ke token add kiye hain
+    # Sabhi important stocks ke tokens
     tokens = {
-        "NIFTY": "99926000", 
-        "BANKNIFTY": "99926009", 
-        "SUZLON": "532667", 
-        "FEDERALBNK": "10217",
-        "ZOMATO": "50304",
-        "RELIANCE": "2885",
-        "SBIN": "3045"
+        "NIFTY": "99926000", "BANKNIFTY": "99926009", 
+        "SUZLON": "532667", "FEDERALBNK": "10217", "ZOMATO": "50304"
     }
-    
-    # Agar token list mein nahi hai, toh default Nifty par jayega
     symbol_token = tokens.get(current_stock, "99926000") 
     
     try:
@@ -82,7 +72,7 @@ if st.session_state.smartApi:
         if ohlc_data['status']:
             ltp = float(ohlc_data['data']['ltp'])
             
-            # --- KEEPING YOUR ORIGINAL CALCULATIONS ---
+            # S/R Calculations (Professional Standard)
             r1 = round(ltp * 1.008, 2)
             s1 = round(ltp * 0.992, 2)
             
@@ -94,8 +84,8 @@ if st.session_state.smartApi:
             p2.metric("Resistance (Exit)", f"₹{r1}", delta="Profit Zone")
             p3.metric("Support (Entry)", f"₹{s1}", delta="-Loss Zone", delta_color="inverse")
             
-            # --- THE TRADE CARD ---
-            st.info(f"💡 **AI Trade Recommendation for {current_stock}:**")
+            # TRADE ACTION CARD
+            st.info("💡 **AI Trade Recommendation:**")
             t_col1, t_col2, t_col3 = st.columns(3)
             
             is_bullish = ltp > s1 + (r1-s1)*0.4 
@@ -117,9 +107,9 @@ if st.session_state.smartApi:
                 st.warning(f"🛡️ Stoploss (SL): ₹{round(ltp * 0.99, 2)}")
 
     except Exception as e:
-        st.error(f"Data Fetch Error: {current_stock} ke liye token update karna hoga.")
+        st.error(f"Data Fetch Error: {e}")
 else:
-    st.warning("Sidebar se Login karein taaki Search aur Trade Planner active ho sakein.")
+    st.warning("Sidebar se Login karein.")
 
 st.markdown("---")
-st.caption("Admin & HR Optimized Trading Terminal | v2.5 Professional Edition")
+st.caption("Admin & HR Optimized Trading Terminal | v2.0 Professional")
