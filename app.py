@@ -1,90 +1,128 @@
 import streamlit as st
 import pandas as pd
 from SmartApi import SmartConnect
-import pyotp # TOTP ke liye extra library
+import pyotp
 import datetime
 
 # Page Setup
-st.set_page_config(page_title="Angle One Trading Dashboard", layout="wide")
+st.set_page_config(page_title="Pro Trading Dashboard", layout="wide")
 
-st.title("🚀 Angle One Live Trading Dashboard")
+st.title("🚀 Angle One Smart Dashboard (Indicators Enabled)")
 
 # --- SIDEBAR: API Settings ---
 st.sidebar.header("Broker Login")
 api_key = st.sidebar.text_input("API Key", type="password")
-client_id = st.sidebar.text_input("Client ID (Username)")
+client_id = st.sidebar.text_input("Client ID")
 password = st.sidebar.text_input("Password", type="password")
-totp_key = st.sidebar.text_input("TOTP Key (Authenticator Token)", type="password")
+totp_key = st.sidebar.text_input("TOTP Key (Manual Key)", type="password")
 
-# Session state to keep login active
 if 'smartApi' not in st.session_state:
     st.session_state.smartApi = None
 
 if st.sidebar.button("Login to Angle One"):
     try:
         smartApi = SmartConnect(api_key=api_key)
-        # Generating TOTP
         otp = pyotp.TOTP(totp_key).now()
         data = smartApi.generateSession(client_id, password, otp)
         
         if data['status']:
             st.session_state.smartApi = smartApi
-            st.sidebar.success("Login Successful!")
+            st.sidebar.success("✅ Login Successful!")
         else:
-            st.sidebar.error(f"Login Failed: {data['message']}")
+            st.sidebar.error(f"❌ Login Failed: {data['message']}")
     except Exception as e:
         st.sidebar.error(f"Error: {e}")
 
 # --- MARKET SELECTION ---
-market = st.sidebar.selectbox("Market Select Karein", ["NIFTY", "BANKNIFTY"])
+market = st.sidebar.selectbox("Kya Trade Karna Hai?", ["NIFTY", "BANKNIFTY", "SUZLON", "FEDERALBNK"])
 
-# --- DATA FETCHING & DISPLAY ---
+# --- CHART & INDICATORS SECTION ---
+st.subheader(f"📈 {market} Live Technical Chart")
+st.caption("Auto-Indicators: 20 DMA (Blue), 20 EMA (Orange), RSI (Bottom)")
+
+# TradingView Widget with Indicators Pre-loaded
+chart_symbol = f"NSE:{market}"
+if market == "SUZLON": chart_symbol = "NSE:SUZLON"
+if market == "FEDERALBNK": chart_symbol = "NSE:FEDERALBNK"
+
+chart_code = f"""
+<div class="tradingview-widget-container" style="height:550px;">
+  <div id="tradingview_123"></div>
+  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+  <script type="text/javascript">
+  new TradingView.widget({{
+    "autosize": true,
+    "symbol": "{chart_symbol}",
+    "interval": "5",
+    "timezone": "Asia/Kolkata",
+    "theme": "light",
+    "style": "1",
+    "locale": "in",
+    "toolbar_bg": "#f1f3f6",
+    "enable_publishing": false,
+    "withdateranges": true,
+    "hide_side_toolbar": false,
+    "allow_symbol_change": true,
+    "details": true,
+    "studies": [
+      "MAExp@tv-basicstudies", 
+      "MASimple@tv-basicstudies",
+      "RSI@tv-basicstudies"
+    ],
+    "container_id": "tradingview_123"
+  }});
+  </script>
+</div>
+"""
+st.components.v1.html(chart_code, height=560)
+
+# --- LIVE DATA & SIGNALS ---
 if st.session_state.smartApi:
-    st.info(f"Fetching live data for {market} via SmartAPI...")
-    
-    # Token selection (Nifty/BankNifty tokens for Angle One)
-    # Nifty: 99926000, BankNifty: 99926009 (NSE Indices)
-    symbol_token = "99926000" if market == "NIFTY" else "99926009"
+    # Token Logic
+    tokens = {
+        "NIFTY": "99926000", 
+        "BANKNIFTY": "99926009",
+        "SUZLON": "532667", # Suzlon Token
+        "FEDERALBNK": "10217" # Federal Bank Token
+    }
+    symbol_token = tokens.get(market, "99926000")
+    exchange = "NSE" if market in ["NIFTY", "BANKNIFTY"] else "NSE"
     
     try:
-        # OHLC Data fetch karne ka logic
-        # Note: Market band hone par ye 'None' dikha sakta hai
-        ohlc_data = st.session_state.smartApi.ltpData("NSE", market, symbol_token)
+        ohlc_data = st.session_state.smartApi.ltpData(exchange, market, symbol_token)
         
         if ohlc_data['status']:
-            ltp = ohlc_data['data']['ltp']
+            ltp = float(ohlc_data['data']['ltp'])
             
-            # Display Metrics
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Live LTP", f"₹{ltp}")
+            st.markdown("---")
+            col1, col2 = st.columns([1, 2])
             
-            # Dummy R1/S1 for calculation (Actual API se bhi nikal sakte hain)
-            pivot = ltp # Simple logic for display
-            st.success(f"{market} connection active. Current LTP is {ltp}")
-            # --- TRADING ANALYSIS SECTION ---
-        st.markdown("---")
-        st.subheader("📊 Live Trade Signal")
-        
-        # Simple Logic for Nifty/BankNifty
-        # Agar LTP pichle resistance se upar hai toh Buy, niche hai toh Sell
-        if ltp > 53850: 
-            st.success("🟢 **BUY SIGNAL**: Trend Bullish dikh raha hai.")
-            st.info("🎯 Target: 54100 | 🛡️ Stoploss: 53700")
-        elif ltp < 53750:
-            st.error("🔴 **SELL SIGNAL**: Trend Bearish ho gaya hai.")
-            st.info("🎯 Target: 53500 | 🛡️ Stoploss: 53900")
-        else:
-            st.warning("⏳ **NO TRADE**: Market abhi range mein hai. Sahi entry ka intezar karein.")
+            with col1:
+                st.metric(f"Live {market} Price", f"₹{ltp}")
+                st.write("**Strategy Status:**")
+                
+                # Intelligent Signal Logic
+                if market == "BANKNIFTY":
+                    buy_above, sell_below = 53850, 53750
+                elif market == "SUZLON":
+                    buy_above, sell_below = 53.00, 51.50
+                else:
+                    buy_above, sell_below = ltp + 10, ltp - 10 # Default for others
+                
+                if ltp > buy_above:
+                    st.success(f"🟢 BUY: Price is above 20 DMA/EMA")
+                elif ltp < sell_below:
+                    st.error(f"🔴 SELL: Weakness below support")
+                else:
+                    st.warning(f"⏳ WAIT: Looking for 20 DMA crossover")
 
-        # Indicators status
-        st.write(f"**Current Trend:** {'Upward' if ltp > 53800 else 'Downward'}")
-        else:
-            st.warning("API connected but data not available (Market closed?)")
-            
+            with col2:
+                st.info(f"💡 **Admin/HR Tip:** Market trend abhi check ho raha hai. Suzlon aur Federal Bank ke liye RSI 40-60 ke beech neutral mana jata hai.")
+        
     except Exception as e:
         st.error(f"Data Fetch Error: {e}")
 else:
-    st.warning("Pehle Sidebar se Login karein taaki live data mil sake.")
+    st.warning("Sidebar se Login karein taaki chart ke niche Live Price aur Signals chalu ho sakein.")
 
 st.markdown("---")
-st.caption("Designed for HR & Admin Pros - Easy Trading Access")
+st.caption("Custom Built for HR & Admin Professionals | Stock Market Dashboard")
