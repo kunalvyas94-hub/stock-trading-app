@@ -5,29 +5,31 @@ import pyotp
 import requests
 
 # Page Setup
-st.set_page_config(page_title="Professional AI Trader", layout="wide")
+st.set_page_config(page_title="AI Trading Terminal Pro", layout="wide")
 st.title("🛡️ Universal AI Trading Terminal")
 
-# --- 1. SMART TOKEN LOADER (Universal Library) ---
-@st.cache_data # Isse baar-baar download nahi hoga, speed badhegi
+# --- 1. TOKEN LOADER (Universal Library) ---
+@st.cache_data
 def get_universal_tokens():
     try:
         url = "https://margincalculator.angelbroking.com/OpenAPI_Standard/token/OpenAPIScripMaster.json"
-        response = requests.get(url).json()
+        response = requests.get(url, timeout=5).json()
         df = pd.DataFrame(response)
-        # Humein sirf NSE stocks chahiye
         df = df[df['exch_seg'] == 'NSE']
-        # Dictionary banate hain: Symbol -> Token
-        token_map = dict(zip(df['symbol'], df['token']))
-        return token_map
+        return dict(zip(df['symbol'], df['token']))
     except:
-        st.error("Token library load nahi ho saki. Internet check karein.")
-        return {}
+        # Fallback list agar API fail ho jaye
+        return {"NIFTY": "99926000", "BANKNIFTY": "99926009", "SUZLON-EQ": "532667", "ZOMATO-EQ": "50304", "SBIN-EQ": "3045"}
 
 token_library = get_universal_tokens()
 
-# --- SIDEBAR: Login ---
-st.sidebar.header("Broker Login")
+# --- 2. SESSION STATE MANAGEMENT ---
+# Isse button click karne par stock change ho jayega
+if 'selected_stock' not in st.session_state:
+    st.session_state.selected_stock = "SBIN-EQ"
+
+# --- 3. SIDEBAR: Login & High Volume ---
+st.sidebar.header("🔑 Broker Login")
 api_key = st.sidebar.text_input("API Key", type="password")
 client_id = st.sidebar.text_input("Client ID")
 password = st.sidebar.text_input("Password", type="password")
@@ -36,69 +38,83 @@ totp_key = st.sidebar.text_input("TOTP Key", type="password")
 if 'smartApi' not in st.session_state:
     st.session_state.smartApi = None
 
-if st.sidebar.button("Secure Login"):
+if st.sidebar.button("Establish Connection"):
     try:
         smartApi = SmartConnect(api_key=api_key)
         otp = pyotp.TOTP(totp_key).now()
         data = smartApi.generateSession(client_id, password, otp)
         if data['status']:
             st.session_state.smartApi = smartApi
-            st.sidebar.success("✅ Connected to Exchange")
-    except Exception as e:
-        st.sidebar.error(f"Error: {e}")
+            st.sidebar.success("✅ Online")
+    except:
+        st.sidebar.error("Login Failed")
 
-# --- SEARCH BAR ---
-st.markdown("### 🔍 Search Any NSE Stock")
-# Search me ab aap kuch bhi likh sakte hain
-search_input = st.text_input("Stock Symbol Likhein (e.g., RELIANCE-EQ, ZOMATO-EQ, SBIN-EQ)", value="SBIN-EQ")
-current_stock = search_input.upper()
+st.sidebar.markdown("---")
+st.sidebar.header("🔥 High Volume Today")
+# Yeh stocks click karne par niche ka data change karenge
+vol_list = ["ZOMATO-EQ", "SUZLON-EQ", "RELIANCE-EQ", "TATAMOTORS-EQ", "FEDERALBNK-EQ"]
 
-# --- TRADE PLANNER ---
+for s in vol_list:
+    if st.sidebar.button(f"📊 {s}"):
+        st.session_state.selected_stock = s
+
+# --- 4. MAIN SEARCH ---
+st.markdown("### 🔍 Stock Analyzer")
+search_val = st.text_input("Symbol Likhein (E.g. SBIN-EQ)", value=st.session_state.selected_stock)
+current_stock = search_val.upper()
+
+# --- 5. AUTOMATIC ENTRY/TARGET/SL CALCULATOR ---
 if st.session_state.smartApi:
-    # Library se token nikalna
-    symbol_token = token_library.get(current_stock)
+    # "Eternal" check for Zomato
+    lookup = "ZOMATO-EQ" if "ETERNAL" in current_stock else current_stock
+    token = token_library.get(lookup)
     
-    if symbol_token:
+    if token:
         try:
-            # LTP Data mangwana
-            ohlc_data = st.session_state.smartApi.ltpData("NSE", current_stock, symbol_token)
-            
-            if ohlc_data['status']:
-                ltp = float(ohlc_data['data']['ltp'])
+            data = st.session_state.smartApi.ltpData("NSE", lookup, token)
+            if data['status']:
+                ltp = float(data['data']['ltp'])
                 
-                # --- AAPKI BEST STRATEGY LOGIC ---
+                # --- YOUR BEST CALCULATION LOGIC ---
                 r1 = round(ltp * 1.008, 2)
                 s1 = round(ltp * 0.992, 2)
+                t1 = round(ltp * 1.01, 2)
+                t2 = round(ltp * 1.02, 2)
+                sl = round(ltp * 0.99, 2)
+                entry = round(ltp * 1.001, 2)
+
+                st.markdown(f"---")
+                st.header(f"📈 {lookup} Analysis Report")
                 
-                st.markdown("---")
-                st.subheader(f"⚡ Professional Trade Plan: {current_stock}")
+                # Display Metrics
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Live Price", f"₹{ltp}")
+                col2.metric("Resistance (R1)", f"₹{r1}", delta="Target Area")
+                col3.metric("Support (S1)", f"₹{s1}", delta="Entry Area", delta_color="inverse")
                 
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Live Price", f"₹{ltp}")
-                c2.metric("Target Zone (R1)", f"₹{r1}")
-                c3.metric("Entry Zone (S1)", f"₹{s1}")
+                # Trade Execution Card
+                st.success(f"✅ **Trade Plan for {lookup}:**")
+                res_col1, res_col2, res_col3 = st.columns(3)
                 
-                # Recommendation Box
-                st.info(f"📊 Strategy for {current_stock}")
-                t1, t2, t3 = st.columns(3)
+                with res_col1:
+                    st.write("📍 **ENTRY**")
+                    st.code(f"Buy Above: ₹{entry}")
                 
-                with t1:
-                    st.write("**ACTION**")
-                    st.success(f"Buy Above: ₹{round(ltp * 1.001, 2)}")
-                with t2:
-                    st.write("**TARGETS**")
-                    st.write(f"🎯 T1: ₹{round(ltp * 1.01, 2)}")
-                    st.write(f"🎯 T2: ₹{round(ltp * 1.02, 2)}")
-                with t3:
-                    st.write("**RISK**")
-                    st.warning(f"🛡️ SL: ₹{round(ltp * 0.99, 2)}")
-                    
+                with res_col2:
+                    st.write("🎯 **TARGETS**")
+                    st.write(f"T1: ₹{t1}")
+                    st.write(f"T2: ₹{t2}")
+                
+                with res_col3:
+                    st.write("🛡️ **PROTECTION**")
+                    st.error(f"Stoploss: ₹{sl}")
+
         except Exception as e:
-            st.error(f"Price fetch nahi ho paya: {e}")
+            st.error("Data Fetch Error. Token mismatch ho sakta hai.")
     else:
-        st.warning(f"⚠️ Stock '{current_stock}' nahi mila. NSE format use karein (e.g., SBIN-EQ).")
+        st.warning(f"⚠️ '{current_stock}' ka token nahi mila. Kripya '-EQ' suffix check karein.")
 else:
-    st.warning("Pehle Sidebar se Login karein.")
+    st.info("Sidebar mein details dalkar Connect karein.")
 
 st.markdown("---")
-st.caption("Universal Library Enabled | Admin & HR Optimized Terminal")
+st.caption("Auto-Calculated Entry/Exit System | HR & Admin Optimized")
