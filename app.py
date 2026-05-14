@@ -7,7 +7,7 @@ import datetime
 # Page Setup
 st.set_page_config(page_title="Pro Trading Dashboard", layout="wide")
 
-st.title("🚀 Angle One Smart Dashboard (Indicators Enabled)")
+st.title("🚀 Angle One Smart Dashboard + Option Assistant")
 
 # --- SIDEBAR: API Settings ---
 st.sidebar.header("Broker Login")
@@ -36,93 +36,86 @@ if st.sidebar.button("Login to Angle One"):
 # --- MARKET SELECTION ---
 market = st.sidebar.selectbox("Kya Trade Karna Hai?", ["NIFTY", "BANKNIFTY", "SUZLON", "FEDERALBNK"])
 
-# --- CHART & INDICATORS SECTION ---
+# --- CHART SECTION ---
 st.subheader(f"📈 {market} Live Technical Chart")
-st.caption("Auto-Indicators: 20 DMA (Blue), 20 EMA (Orange), RSI (Bottom)")
-
-# TradingView Widget with Indicators Pre-loaded
 chart_symbol = f"NSE:{market}"
 if market == "SUZLON": chart_symbol = "NSE:SUZLON"
 if market == "FEDERALBNK": chart_symbol = "NSE:FEDERALBNK"
 
 chart_code = f"""
-<div class="tradingview-widget-container" style="height:550px;">
+<div class="tradingview-widget-container" style="height:500px;">
   <div id="tradingview_123"></div>
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
   <script type="text/javascript">
   new TradingView.widget({{
-    "autosize": true,
-    "symbol": "{chart_symbol}",
-    "interval": "5",
-    "timezone": "Asia/Kolkata",
-    "theme": "light",
-    "style": "1",
-    "locale": "in",
-    "toolbar_bg": "#f1f3f6",
-    "enable_publishing": false,
-    "withdateranges": true,
-    "hide_side_toolbar": false,
-    "allow_symbol_change": true,
-    "details": true,
-    "studies": [
-      "MAExp@tv-basicstudies", 
-      "MASimple@tv-basicstudies",
-      "RSI@tv-basicstudies"
-    ],
+    "autosize": true, "symbol": "{chart_symbol}", "interval": "5", "timezone": "Asia/Kolkata",
+    "theme": "light", "style": "1", "locale": "in", "toolbar_bg": "#f1f3f6",
+    "studies": ["MAExp@tv-basicstudies", "MASimple@tv-basicstudies", "RSI@tv-basicstudies"],
     "container_id": "tradingview_123"
   }});
   </script>
 </div>
 """
-st.components.v1.html(chart_code, height=560)
+st.components.v1.html(chart_code, height=510)
 
-# --- LIVE DATA & SIGNALS ---
+# --- LIVE DATA & AI OPTION ASSISTANT ---
 if st.session_state.smartApi:
-    # Token Logic
-    tokens = {
-        "NIFTY": "99926000", 
-        "BANKNIFTY": "99926009",
-        "SUZLON": "532667", # Suzlon Token
-        "FEDERALBNK": "10217" # Federal Bank Token
-    }
+    tokens = {"NIFTY": "99926000", "BANKNIFTY": "99926009", "SUZLON": "532667", "FEDERALBNK": "10217"}
     symbol_token = tokens.get(market, "99926000")
-    exchange = "NSE" if market in ["NIFTY", "BANKNIFTY"] else "NSE"
     
     try:
-        ohlc_data = st.session_state.smartApi.ltpData(exchange, market, symbol_token)
-        
+        ohlc_data = st.session_state.smartApi.ltpData("NSE", market, symbol_token)
         if ohlc_data['status']:
             ltp = float(ohlc_data['data']['ltp'])
             
             st.markdown("---")
-            col1, col2 = st.columns([1, 2])
+            col_price, col_ai = st.columns([1, 1])
             
-            with col1:
+            with col_price:
                 st.metric(f"Live {market} Price", f"₹{ltp}")
-                st.write("**Strategy Status:**")
-                
-                # Intelligent Signal Logic
-                if market == "BANKNIFTY":
-                    buy_above, sell_below = 53850, 53750
-                elif market == "SUZLON":
-                    buy_above, sell_below = 53.00, 51.50
+                # Signal Logic
+                if ltp > 53850 or (market=="SUZLON" and ltp > 52.5):
+                    st.success("🟢 TREND: BULLISH (Above 20 DMA)")
+                    trend = "UP"
+                elif ltp < 53750 or (market=="SUZLON" and ltp < 51.5):
+                    st.error("🔴 TREND: BEARISH (Below 20 DMA)")
+                    trend = "DOWN"
                 else:
-                    buy_above, sell_below = ltp + 10, ltp - 10 # Default for others
-                
-                if ltp > buy_above:
-                    st.success(f"🟢 BUY: Price is above 20 DMA/EMA")
-                elif ltp < sell_below:
-                    st.error(f"🔴 SELL: Weakness below support")
-                else:
-                    st.warning(f"⏳ WAIT: Looking for 20 DMA crossover")
+                    st.warning("⏳ TREND: SIDEWAYS")
+                    trend = "SIDE"
 
-            with col2:
-                st.info(f"💡 **Admin/HR Tip:** Market trend abhi check ho raha hai. Suzlon aur Federal Bank ke liye RSI 40-60 ke beech neutral mana jata hai.")
-        
+            # --- NEW: AI OPTION ASSISTANT BOX ---
+            with col_ai:
+                st.subheader("🤖 AI Option Assistant")
+                if st.button(f"Puchhein: Kaunsa Option lein?"):
+                    st.info(f"Analyzing {market} current levels...")
+                    
+                    if market == "SUZLON":
+                        strike = round(ltp)
+                        if trend == "UP":
+                            st.write(f"✅ **Suggested Trade:** Buy **SUZLON {strike} CE** (Call Option)")
+                            st.write("📝 **Reason:** Price 20 DMA ke upar nikal raha hai, momentum strong hai.")
+                        else:
+                            st.write(f"⚠️ **Suggestion:** Abhi wait karein, Suzlon mein fresh entry 52.50 ke upar hi banegi.")
+                            
+                    elif market == "BANKNIFTY":
+                        strike = round(ltp / 100) * 100
+                        if trend == "UP":
+                            st.write(f"🚀 **Suggested Trade:** Buy **BANKNIFTY {strike} CE**")
+                            st.write(f"🎯 Target: {strike + 300} | 🛡️ SL: {strike - 150}")
+                        elif trend == "DOWN":
+                            st.write(f"📉 **Suggested Trade:** Buy **BANKNIFTY {strike} PE**")
+                            st.write(f"🎯 Target: {strike - 300} | 🛡️ SL: {strike + 150}")
+                    
+                    elif market == "FEDERALBNK":
+                        st.write(f"✅ **Suggested Trade:** Focus on **290 CE** or **300 CE** if price crosses 292.")
+                        
+                    st.caption("Note: Ye suggestions sirf calculation par adharit hain. Trade lene se pehle chart zarur check karein.")
+
     except Exception as e:
         st.error(f"Data Fetch Error: {e}")
 else:
-    st.warning("Sidebar se Login karein taaki chart ke niche Live Price aur Signals chalu ho sakein.")
+    st.warning("Sidebar se Login karein taaki AI Assistant activate ho sake.")
 
 st.markdown("---")
-st.caption("Custom Built for HR & Admin Professionals | Stock Market Dashboard")
+st.caption("Designed for HR & Admin Pros | Technical Trading Engine")
