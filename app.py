@@ -61,6 +61,23 @@ if st.session_state.smartApi:
             # Dummy R1/S1 for calculation (Actual API se bhi nikal sakte hain)
             pivot = ltp # Simple logic for display
             st.success(f"{market} connection active. Current LTP is {ltp}")
+            # --- TRADING ANALYSIS SECTION ---
+        st.markdown("---")
+        st.subheader("📊 Live Trade Signal")
+        
+        # Simple Logic for Nifty/BankNifty
+        # Agar LTP pichle resistance se upar hai toh Buy, niche hai toh Sell
+        if ltp > 53850: 
+            st.success("🟢 **BUY SIGNAL**: Trend Bullish dikh raha hai.")
+            st.info("🎯 Target: 54100 | 🛡️ Stoploss: 53700")
+        elif ltp < 53750:
+            st.error("🔴 **SELL SIGNAL**: Trend Bearish ho gaya hai.")
+            st.info("🎯 Target: 53500 | 🛡️ Stoploss: 53900")
+        else:
+            st.warning("⏳ **NO TRADE**: Market abhi range mein hai. Sahi entry ka intezar karein.")
+
+        # Indicators status
+        st.write(f"**Current Trend:** {'Upward' if ltp > 53800 else 'Downward'}")
         else:
             st.warning("API connected but data not available (Market closed?)")
             
