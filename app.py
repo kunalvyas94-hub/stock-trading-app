@@ -2,34 +2,14 @@ import streamlit as st
 import pandas as pd
 from SmartApi import SmartConnect
 import pyotp
-import requests
+import datetime
 
 # Page Setup
-st.set_page_config(page_title="AI Trading Terminal Pro", layout="wide")
-st.title("🛡️ Universal AI Trading Terminal")
+st.set_page_config(page_title="Professional AI Trader", layout="wide")
+st.title("🛡️ Professional AI Trading Terminal")
 
-# --- 1. TOKEN LOADER (Universal Library) ---
-@st.cache_data
-def get_universal_tokens():
-    try:
-        url = "https://margincalculator.angelbroking.com/OpenAPI_Standard/token/OpenAPIScripMaster.json"
-        response = requests.get(url, timeout=5).json()
-        df = pd.DataFrame(response)
-        df = df[df['exch_seg'] == 'NSE']
-        return dict(zip(df['symbol'], df['token']))
-    except:
-        # Fallback list agar API fail ho jaye
-        return {"NIFTY": "99926000", "BANKNIFTY": "99926009", "SUZLON-EQ": "532667", "ZOMATO-EQ": "50304", "SBIN-EQ": "3045"}
-
-token_library = get_universal_tokens()
-
-# --- 2. SESSION STATE MANAGEMENT ---
-# Isse button click karne par stock change ho jayega
-if 'selected_stock' not in st.session_state:
-    st.session_state.selected_stock = "SBIN-EQ"
-
-# --- 3. SIDEBAR: Login & High Volume ---
-st.sidebar.header("🔑 Broker Login")
+# --- SIDEBAR: API Settings ---
+st.sidebar.header("Broker Login")
 api_key = st.sidebar.text_input("API Key", type="password")
 client_id = st.sidebar.text_input("Client ID")
 password = st.sidebar.text_input("Password", type="password")
@@ -38,83 +18,98 @@ totp_key = st.sidebar.text_input("TOTP Key", type="password")
 if 'smartApi' not in st.session_state:
     st.session_state.smartApi = None
 
-if st.sidebar.button("Establish Connection"):
+if st.sidebar.button("Secure Login"):
     try:
         smartApi = SmartConnect(api_key=api_key)
         otp = pyotp.TOTP(totp_key).now()
         data = smartApi.generateSession(client_id, password, otp)
         if data['status']:
             st.session_state.smartApi = smartApi
-            st.sidebar.success("✅ Online")
-    except:
-        st.sidebar.error("Login Failed")
+            st.sidebar.success("✅ Connected to Exchange")
+    except Exception as e:
+        st.sidebar.error(f"Error: {e}")
 
-st.sidebar.markdown("---")
-st.sidebar.header("🔥 High Volume Today")
-# Yeh stocks click karne par niche ka data change karenge
-vol_list = ["ZOMATO-EQ", "SUZLON-EQ", "RELIANCE-EQ", "TATAMOTORS-EQ", "FEDERALBNK-EQ"]
+# --- SEARCH & STOCK SELECTION ---
+st.markdown("### 🔍 Live Stock Search")
+col_search, col_market = st.columns([2, 1])
 
-for s in vol_list:
-    if st.sidebar.button(f"📊 {s}"):
-        st.session_state.selected_stock = s
-
-# --- 4. MAIN SEARCH ---
-st.markdown("### 🔍 Stock Analyzer")
-search_val = st.text_input("Symbol Likhein (E.g. SBIN-EQ)", value=st.session_state.selected_stock)
-current_stock = search_val.upper()
-
-# --- 5. AUTOMATIC ENTRY/TARGET/SL CALCULATOR ---
-if st.session_state.smartApi:
-    # "Eternal" check for Zomato
-    lookup = "ZOMATO-EQ" if "ETERNAL" in current_stock else current_stock
-    token = token_library.get(lookup)
+with col_search:
+    search_stock = st.text_input("Stock Name Type Karein (e.g., RELIANCE, ZOMATO, SBIN)", value="NIFTY")
     
-    if token:
-        try:
-            data = st.session_state.smartApi.ltpData("NSE", lookup, token)
-            if data['status']:
-                ltp = float(data['data']['ltp'])
-                
-                # --- YOUR BEST CALCULATION LOGIC ---
-                r1 = round(ltp * 1.008, 2)
-                s1 = round(ltp * 0.992, 2)
-                t1 = round(ltp * 1.01, 2)
-                t2 = round(ltp * 1.02, 2)
-                sl = round(ltp * 0.99, 2)
-                entry = round(ltp * 1.001, 2)
+with col_market:
+    quick_select = st.selectbox("Ya Favorites Chunein", ["NIFTY", "BANKNIFTY", "SUZLON", "FEDERALBNK"])
+    
+current_stock = search_stock.upper() if search_stock else quick_select
 
-                st.markdown(f"---")
-                st.header(f"📈 {lookup} Analysis Report")
-                
-                # Display Metrics
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Live Price", f"₹{ltp}")
-                col2.metric("Resistance (R1)", f"₹{r1}", delta="Target Area")
-                col3.metric("Support (S1)", f"₹{s1}", delta="Entry Area", delta_color="inverse")
-                
-                # Trade Execution Card
-                st.success(f"✅ **Trade Plan for {lookup}:**")
-                res_col1, res_col2, res_col3 = st.columns(3)
-                
-                with res_col1:
-                    st.write("📍 **ENTRY**")
-                    st.code(f"Buy Above: ₹{entry}")
-                
-                with res_col2:
-                    st.write("🎯 **TARGETS**")
-                    st.write(f"T1: ₹{t1}")
-                    st.write(f"T2: ₹{t2}")
-                
-                with res_col3:
-                    st.write("🛡️ **PROTECTION**")
-                    st.error(f"Stoploss: ₹{sl}")
+# --- LIVE CHART SECTION ---
+st.subheader(f"📊 Technical Analysis: {current_stock}")
+chart_code = f"""
+<div class="tradingview-widget-container" style="height:450px;">
+  <div id="tv_chart"></div>
+  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+  <script type="text/javascript">
+  new TradingView.widget({{
+    "autosize": true, "symbol": "NSE:{current_stock}", "interval": "5", "theme": "light", "style": "1",
+    "studies": ["PivotPointsHighLow@tv-basicstudies", "MAExp@tv-basicstudies", "RSI@tv-basicstudies"],
+    "container_id": "tv_chart"
+  }});
+  </script>
+</div>
+"""
+st.components.v1.html(chart_code, height=460)
 
-        except Exception as e:
-            st.error("Data Fetch Error. Token mismatch ho sakta hai.")
-    else:
-        st.warning(f"⚠️ '{current_stock}' ka token nahi mila. Kripya '-EQ' suffix check karein.")
+# --- PROFESSIONAL TRADE PLANNER (ENTRY/EXIT/SL) ---
+if st.session_state.smartApi:
+    # Sabhi important stocks ke tokens
+    tokens = {
+        "NIFTY": "99926000", "BANKNIFTY": "99926009", 
+        "SUZLON": "532667", "FEDERALBNK": "10217", "ZOMATO": "50304"
+    }
+    symbol_token = tokens.get(current_stock, "99926000") 
+    
+    try:
+        ohlc_data = st.session_state.smartApi.ltpData("NSE", current_stock, symbol_token)
+        if ohlc_data['status']:
+            ltp = float(ohlc_data['data']['ltp'])
+            
+            # S/R Calculations (Professional Standard)
+            r1 = round(ltp * 1.008, 2)
+            s1 = round(ltp * 0.992, 2)
+            
+            st.markdown("---")
+            st.subheader(f"⚡ Professional Trade Plan for {current_stock}")
+            
+            p1, p2, p3, p4 = st.columns(4)
+            p1.metric("Current Price", f"₹{ltp}")
+            p2.metric("Resistance (Exit)", f"₹{r1}", delta="Profit Zone")
+            p3.metric("Support (Entry)", f"₹{s1}", delta="-Loss Zone", delta_color="inverse")
+            
+            # TRADE ACTION CARD
+            st.info("💡 **AI Trade Recommendation:**")
+            t_col1, t_col2, t_col3 = st.columns(3)
+            
+            is_bullish = ltp > s1 + (r1-s1)*0.4 
+            
+            with t_col1:
+                st.write("**ENTRY ZONE**")
+                if is_bullish:
+                    st.success(f"Buy Above: ₹{round(ltp + (ltp*0.001), 2)}")
+                else:
+                    st.error(f"Sell Below: ₹{round(ltp - (ltp*0.001), 2)}")
+            
+            with t_col2:
+                st.write("**TARGETS (Exit)**")
+                st.write(f"🎯 T1: ₹{round(ltp * 1.01, 2)}")
+                st.write(f"🎯 T2: ₹{round(ltp * 1.02, 2)}")
+                
+            with t_col3:
+                st.write("**RISK MANAGEMENT**")
+                st.warning(f"🛡️ Stoploss (SL): ₹{round(ltp * 0.99, 2)}")
+
+    except Exception as e:
+        st.error(f"Data Fetch Error: {e}")
 else:
-    st.info("Sidebar mein details dalkar Connect karein.")
+    st.warning("Sidebar se Login karein.")
 
 st.markdown("---")
-st.caption("Auto-Calculated Entry/Exit System | HR & Admin Optimized")
+st.caption("Admin & HR Optimized Trading Terminal | v2.0 Professional")
