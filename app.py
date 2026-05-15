@@ -5,10 +5,10 @@ import pyotp
 import datetime
 
 # Page Setup
-st.set_page_config(page_title="AI Trade Planner Pro", layout="wide")
-st.title("🚀 Professional Trade Planner & Option Assistant")
+st.set_page_config(page_title="AI Dual-Side Trader", layout="wide")
+st.title("⚖️ Dual-Side AI Trade Planner (Call & Put)")
 
-# --- SIDEBAR: API Settings ---
+# --- SIDEBAR: API Settings (Wahi purana setup) ---
 st.sidebar.header("Broker Login")
 api_key = st.sidebar.text_input("API Key", type="password")
 client_id = st.sidebar.text_input("Client ID")
@@ -18,90 +18,78 @@ totp_key = st.sidebar.text_input("TOTP Key", type="password")
 if 'smartApi' not in st.session_state:
     st.session_state.smartApi = None
 
-if st.sidebar.button("Login to Angle One"):
+if st.sidebar.button("Secure Login"):
     try:
         smartApi = SmartConnect(api_key=api_key)
         otp = pyotp.TOTP(totp_key).now()
         data = smartApi.generateSession(client_id, password, otp)
         if data['status']:
             st.session_state.smartApi = smartApi
-            st.sidebar.success("✅ Login Successful!")
+            st.sidebar.success("✅ Connected")
     except Exception as e:
         st.sidebar.error(f"Error: {e}")
 
-# --- MARKET SELECTION ---
-market = st.sidebar.selectbox("Market Select Karein", ["NIFTY", "BANKNIFTY", "SUZLON", "FEDERALBNK"])
+# --- SEARCH & SELECTION ---
+search_query = st.text_input("🔍 Search Stock/Index (NIFTY, BANKNIFTY, SUZLON, etc.)", value="NIFTY")
+current_symbol = search_query.upper()
 
-# --- LIVE CHART ---
-st.subheader(f"📈 {market} Technical View")
-chart_symbol = f"NSE:{market}"
-chart_code = f"""
-<div class="tradingview-widget-container" style="height:400px;">
-  <div id="tradingview_chart"></div>
-  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-  <script type="text/javascript">
-  new TradingView.widget({{
-    "autosize": true, "symbol": "{chart_symbol}", "interval": "5", "theme": "light", "style": "1",
-    "studies": ["PivotPointsHighLow@tv-basicstudies", "MAExp@tv-basicstudies", "RSI@tv-basicstudies"],
-    "container_id": "tradingview_chart"
-  }});
-  </script>
-</div>
-"""
-st.components.v1.html(chart_code, height=410)
-
-# --- TRADE PLANNING LOGIC ---
+# --- DUAL-SIDE TRADE PLANNING ---
 if st.session_state.smartApi:
+    # Token Mapping
     tokens = {"NIFTY": "99926000", "BANKNIFTY": "99926009", "SUZLON": "532667", "FEDERALBNK": "10217"}
-    symbol_token = tokens.get(market)
+    symbol_token = tokens.get(current_symbol, "99926000")
     
     try:
-        ohlc_data = st.session_state.smartApi.ltpData("NSE", market, symbol_token)
+        ohlc_data = st.session_state.smartApi.ltpData("NSE", current_symbol, symbol_token)
         if ohlc_data['status']:
             ltp = float(ohlc_data['data']['ltp'])
             
-            # Auto S/R Levels Calculation (Intraday basis)
-            r1 = round(ltp * 1.005, 2)
-            s1 = round(ltp * 0.995, 2)
-
-            col1, col2 = st.columns(2)
+            # Level Calculation (Pivot Based)
+            # R1: Resistance (Yahan se PE ka sochein)
+            # S1: Support (Yahan se CE ka sochein)
+            r1 = round(ltp * 1.006, 2)
+            s1 = round(ltp * 0.994, 2)
             
-            with col1:
-                st.metric(f"Current Price", f"₹{ltp}")
-                st.info(f"🚩 Resistance: {r1} | 🟢 Support: {s1}")
-                
-            with col2:
-                st.subheader("🎯 Trade Plan Assistant")
-                if st.button("Generate Trade Plan"):
-                    st.write("---")
-                    # Trade Logic for Nifty/BankNifty
-                    if market in ["NIFTY", "BANKNIFTY"]:
-                        strike = round(ltp / 100) * 100
-                        if ltp > s1 + (r1-s1)*0.6: # Bullish setup
-                            st.success(f"✅ **ACTION: BUY {market} {strike} CE**")
-                            st.write(f"📈 **Target:** {strike + 150 if market=='NIFTY' else strike + 400}")
-                            st.write(f"🛡️ **Stoploss:** {strike - 80 if market=='NIFTY' else strike - 200}")
-                        else:
-                            st.error(f"✅ **ACTION: BUY {market} {strike} PE**")
-                            st.write(f"📉 **Target:** {strike - 150 if market=='NIFTY' else strike - 400}")
-                            st.write(f"🛡️ **Stoploss:** {strike + 80 if market=='NIFTY' else strike + 200}")
-                    
-                    # Logic for Stocks (Suzlon/Federal)
-                    else:
-                        if ltp > r1:
-                            st.success(f"🔥 BREAKOUT! Buy {market} in Cash or Next Month Call.")
-                            st.write(f"🎯 Target: {round(ltp * 1.05, 2)} | 🛡️ SL: {round(ltp * 0.97, 2)}")
-                        else:
-                            st.warning(f"⏳ Wait for {market} to cross {r1} for a fresh long trade.")
-
-            # AI CHAT BOX
             st.markdown("---")
-            st.subheader("💬 Ask AI (HR & Admin Assistant Mode)")
-            user_input = st.text_input("Ask me anything about this trade...")
+            col_l, col_r = st.columns(2)
+            col_l.metric("LIVE PRICE", f"₹{ltp}")
+            col_r.info(f"Market Range: {s1} (Support) - {r1} (Resistance)")
+
+            st.subheader("🎯 Trade Entry Points")
+            
+            # --- CALL SIDE (BUY) LOGIC ---
+            ce_col, pe_col = st.columns(2)
+            
+            with ce_col:
+                st.success("🟢 CALL SIDE (CE) PLAN")
+                st.write(f"**Condition:** Buy if price holds above {s1}")
+                st.write(f"**Entry:** Above ₹{round(ltp + (ltp*0.0005), 2)}")
+                st.write(f"**Target 1:** ₹{round(ltp + (ltp*0.01), 2)}")
+                st.write(f"**Target 2:** ₹{round(ltp + (ltp*0.02), 2)}")
+                st.write(f"**Stoploss:** ₹{round(s1 - (s1*0.002), 2)}")
+                
+            # --- PUT SIDE (SELL) LOGIC ---
+            with pe_col:
+                st.error("🔴 PUT SIDE (PE) PLAN")
+                st.write(f"**Condition:** Buy if price rejects from {r1}")
+                st.write(f"**Entry:** Below ₹{round(ltp - (ltp*0.0005), 2)}")
+                st.write(f"**Target 1:** ₹{round(ltp - (ltp*0.01), 2)}")
+                st.write(f"**Target 2:** ₹{round(ltp - (ltp*0.02), 2)}")
+                st.write(f"**Stoploss:** ₹{round(r1 + (r1*0.002), 2)}")
+
+            # --- AI ASSISTANT CHAT ---
+            st.markdown("---")
+            st.subheader("💬 AI Chat Assistant")
+            user_input = st.text_input("Ask about current trend...")
             if user_input:
-                st.write(f"🤖 **AI:** Based on current LTP of {ltp} and RSI/20-DMA analysis, {market} is showing {'Strong' if ltp > r1 else 'Neutral'} momentum. Focus on managing your risk first.")
+                if ltp > r1:
+                    st.write(f"🤖 **AI:** {current_symbol} Resistance tod raha hai. PE se bachein, CE mein trailing SL lagayein.")
+                elif ltp < s1:
+                    st.write(f"🤖 **AI:** Support toot raha hai. CE se nikal jayein, PE active ho sakta hai.")
+                else:
+                    st.write(f"🤖 **AI:** Market range mein hai. {s1} par aaye toh CE aur {r1} par aaye toh PE ka setup dekhein.")
 
     except Exception as e:
-        st.error(f"Connection Error: {e}")
+        st.error(f"Error fetching data: {e}")
 else:
-    st.warning("Sidebar se Login karein.")
+    st.warning("Pehle Sidebar se Login karein.")
